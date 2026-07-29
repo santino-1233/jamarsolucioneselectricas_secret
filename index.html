@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Subir fotos de trabajos | JAMAR</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container nav-wrap">
+    <a href="index.html" class="logo" aria-label="JAMAR Soluciones Eléctricas - Inicio">
+      <img src="img/logo.png" alt="JAMAR Soluciones Eléctricas" class="logo-img">
+    </a>
+  </div>
+</header>
+
+<main>
+  <section class="uploader-page">
+    <span class="eyebrow">Panel privado</span>
+    <h1 class="section-title" style="font-size:32px; margin-left:auto; margin-right:auto;">Subir fotos de trabajos</h1>
+    <p class="uploader-note">Esta página no aparece en el menú del sitio. Las fotos que subas acá se muestran automáticamente en "Nuestros Trabajos".</p>
+
+    <form id="upload-form">
+      <label class="dropzone" id="dropzone">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+        <p><strong>Tocá para elegir fotos</strong><br>o arrastralas hasta acá</p>
+        <input type="file" id="file-input" accept="image/*" multiple>
+      </label>
+    </form>
+
+    <div class="upload-list" id="upload-list"></div>
+
+    <hr style="border:none; border-top:1px solid var(--gray-light); margin:50px 0 30px;">
+
+    <h2 class="section-title" style="font-size:22px; margin-left:auto; margin-right:auto;">Fotos ya subidas</h2>
+    <p class="uploader-note" id="gallery-status">Cargando...</p>
+    <div class="upload-list" id="existing-photos"></div>
+  </section>
+</main>
+
+<script>
+  // Config Cloudinary — debe coincidir con lo configurado en Cloudinary.
+  const CLOUD_NAME = "pzowhg5o";
+  const UPLOAD_PRESET = "jamar_trabajos";
+  const TAG = "trabajo";
+
+  // ⚠️ Necesarios SOLO para poder borrar fotos desde esta página.
+  // Sacalos de Cloudinary → Settings → API Keys, y pegalos tal cual (son sensibles a mayúsculas).
+  // Esta página tiene "noindex" y no está linkeada en el menú, pero igual: NO compartas este link.
+  const API_KEY = "837352221783737";
+  const API_SECRET = "9VKTCZWbDWTIjzXRs3A5gu3v7MI";
+
+  const dropzone = document.getElementById("dropzone");
+  const fileInput = document.getElementById("file-input");
+  const list = document.getElementById("upload-list");
+
+  ["dragenter", "dragover"].forEach((evt) =>
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.add("dragover");
+    })
+  );
+  ["dragleave", "drop"].forEach((evt) =>
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.remove("dragover");
+    })
+  );
+  dropzone.addEventListener("drop", (e) => {
+    const files = e.dataTransfer.files;
+    if (files.length) uploadFiles(files);
+  });
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files.length) uploadFiles(fileInput.files);
+    fileInput.value = "";
+  });
+
+  function uploadFiles(files) {
+    Array.from(files).forEach(uploadFile);
+  }
+
+  function uploadFile(file) {
+    const item = document.createElement("div");
+    item.className = "upload-item";
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      item.innerHTML = `<img src="${e.target.result}" alt="${file.name}"><div class="status">Subiendo...</div>`;
+    };
+    reader.readAsDataURL(file);
+    list.prepend(item);
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("upload_preset", UPLOAD_PRESET);
+    formData.append("tags", TAG);
+
+    fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, {
+      method: "POST",
+      body: formData,
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.secure_url) {
+          item.classList.add("done");
+          // Actualiza la lista de "Fotos ya subidas" (puede tardar unos
+          // segundos en reflejarse del lado de Cloudinary).
+          window.setTimeout(loadGallery, 4000);
+        } else {
+          throw new Error(data.error?.message || "Error al subir");
+        }
+      })
+      .catch((err) => {
+        item.classList.add("error");
+        const status = item.querySelector(".status");
+        if (status) status.textContent = "Error: " + err.message;
+        console.error(err);
+      });
+  }
+
+  // ---- SHA-1 (para firmar el pedido de borrado) ----------------------------
+  async function sha1Hex(text) {
+    const bytes = new TextEncoder().encode(text);
+    const hashBuffer = await crypto.subtle.digest("SHA-1", bytes);
+    return Array.from(new Uint8Array(hashBuffer))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  }
+
+  // ---- Trae las fotos ya subidas (mismo tag que usa la web pública) --------
+  const existingWrap = document.getElementById("existing-photos");
+  const galleryStatus = document.getElementById("gallery-status");
+
+  async function loadGallery() {
+    try {
+      const res = await fetch(
+        `https://res.cloudinary.com/${CLOUD_NAME}/image/list/${TAG}.json`
+      );
+      if (!res.ok) {
+        galleryStatus.textContent =
+          "No se pudieron cargar las fotos (revisá Settings → Security → Resource list en Cloudinary).";
+        return;
+      }
+      const data = await res.json();
+      const resources = data.resources || [];
+
+      if (!resources.length) {
+        galleryStatus.textContent = "Todavía no hay fotos subidas.";
+        existingWrap.innerHTML = "";
+        return;
+      }
+
+      galleryStatus.textContent = `${resources.length} foto(s) subida(s):`;
+      resources.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+      existingWrap.innerHTML = resources
+        .map((r) => {
+          const url = `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/f_auto,q_auto,c_fill,w_300,h_300/${r.public_id}.${r.format}`;
+          return `<div class="upload-item done" data-public-id="${r.public_id}">
+            <img src="${url}" alt="Foto de trabajo subida">
+            <button type="button" class="delete-btn" aria-label="Borrar foto" title="Borrar foto">✕</button>
+          </div>`;
+        })
+        .join("");
+
+      existingWrap.querySelectorAll(".delete-btn").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          const el = e.currentTarget.closest(".upload-item");
+          deleteImage(el.dataset.publicId, el);
+        });
+      });
+    } catch (err) {
+      galleryStatus.textContent = "Error al cargar las fotos.";
+      console.error(err);
+    }
+  }
+
+  // ---- Borra una foto (pedido firmado con API Key + Secret) ----------------
+  async function deleteImage(publicId, el) {
+    if (API_KEY === "TU_API_KEY_ACA" || API_SECRET === "TU_API_SECRET_ACA") {
+      alert(
+        "Falta configurar API_KEY y API_SECRET al principio de esta página para poder borrar."
+      );
+      return;
+    }
+    if (!confirm("¿Borrar esta foto? No se puede deshacer.")) return;
+
+    el.style.opacity = "0.4";
+
+    const timestamp = Math.floor(Date.now() / 1000);
+    const toSign = `public_id=${publicId}&timestamp=${timestamp}${API_SECRET}`;
+    const signature = await sha1Hex(toSign);
+
+    const formData = new FormData();
+    formData.append("public_id", publicId);
+    formData.append("timestamp", timestamp);
+    formData.append("api_key", API_KEY);
+    formData.append("signature", signature);
+
+    try {
+      const res = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/destroy`,
+        { method: "POST", body: formData }
+      );
+      const data = await res.json();
+      if (data.result === "ok") {
+        el.remove();
+      } else {
+        el.style.opacity = "1";
+        alert("No se pudo borrar: " + (data.result || "error desconocido"));
+      }
+    } catch (err) {
+      el.style.opacity = "1";
+      alert("Error al borrar la foto.");
+      console.error(err);
+    }
+  }
+
+  loadGallery();
+</script>
+</body>
+</html>
