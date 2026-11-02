@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Subir fotos de trabajos | JAMAR</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container nav-wrap">
+    <span class="logo">
+      <img src="img/logo.png" alt="JAMAR Soluciones Eléctricas" class="logo-img">
+    </span>
+  </div>
+</header>
+
+<main>
+  <section class="uploader-page">
+    <span class="eyebrow">Panel privado</span>
+    <h1 class="section-title" style="font-size:32px; margin-left:auto; margin-right:auto;">Subir fotos y videos de obras</h1>
+    <p class="uploader-note">Cada obra es una carpeta: en "Nuestros Trabajos" se ve una sola portada y, al tocarla, se abren todas sus fotos y videos. La portada es la primera foto que subas a la obra.</p>
+
+    <div class="album-field">
+      <label for="album-name">Nombre de la obra</label>
+      <input type="text" id="album-name" list="album-options" placeholder="Ej: Local Palermo, Casa Quilmes, Tablero Fábrica Norte" autocomplete="off" maxlength="60">
+      <datalist id="album-options"></datalist>
+      <p class="album-hint">Para agregar a una obra que ya existe, elegila de la lista o escribí el mismo nombre.</p>
+    </div>
+
+    <form id="upload-form">
+      <label class="dropzone" id="dropzone">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+        <p><strong>Tocá para elegir fotos o videos</strong><br>o arrastralos hasta acá</p>
+        <input type="file" id="file-input" accept="image/*,video/*" multiple>
+      </label>
+    </form>
+
+    <div class="upload-list" id="upload-list"></div>
+
+    <hr style="border:none; border-top:1px solid var(--gray-light); margin:50px 0 10px;">
+
+    <h2 class="section-title" style="font-size:22px; margin-left:auto; margin-right:auto;">Obras ya subidas</h2>
+    <p class="uploader-note" id="gallery-status">Cargando...</p>
+    <div id="albums"></div>
+  </section>
+</main>
+
+<script>
+  // Config Cloudinary — debe coincidir con lo configurado en Cloudinary.
+  const CLOUD_NAME = "pzowhg5o";
+  const UPLOAD_PRESET = "jamar_trabajos";
+  const TAG = "trabajo";
+  const ALBUM_ROOT = "obras"; // las obras se guardan como obras/<nombre>/<archivo>
+
+  // ⚠️ Necesarios SOLO para poder borrar desde esta página.
+  const API_KEY = "837352221783737";
+  const API_SECRET = "9VKTCZWbDWTIjzXRs3A5gu3v7MI";
+
+  const CLD = `https://res.cloudinary.com/${CLOUD_NAME}`;
+  const MAX_PARALLEL = 3;
+
+  const $ = (id) => document.getElementById(id);
+  const dropzone = $("dropzone");
+  const fileInput = $("file-input");
+  const list = $("upload-list");
+  const albumInput = $("album-name");
+  const albumsWrap = $("albums");
+  const galleryStatus = $("gallery-status");
+
+  // Estado: todo lo que ya está subido { id, kind, format, created, slug }
+  let items = [];
+
+  // ---- Nombres de obra ---------------------------------------------------
+  function slugify(name) {
+    return name
+      .normalize("NFC")
+      .toLowerCase()
+      .trim()
+      .replace(/[?&#\\%<>"'\/.,;:!¿¡()\[\]{}+=*^$@|~`]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "");
+  }
+  function albumTitle(slug) {
+    if (!slug) return "Otros trabajos (sin obra)";
+    return slug.replace(/[-_]+/g, " ").replace(/\S+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1));
+  }
+  function slugFromId(publicId) {
+    const p = publicId.split("/");
+    return p[0] === ALBUM_ROOT && p.length >= 3 ? p[1] : "";
+  }
+  const encodeId = (id) => id.split("/").map(encodeURIComponent).join("/");
+
+  function thumbUrl(it) {
+    const id = encodeId(it.id);
+    return it.kind === "video"
+      ? `${CLD}/video/upload/so_0,f_jpg,q_auto,c_fill,g_auto,w_300,h_300/${id}.jpg`
+      : `${CLD}/image/upload/f_auto,q_auto,c_fill,g_auto,w_300,h_300/${id}.${it.format}`;
+  }
+
+  // ---- Drag & drop ---------------------------------------------------------
+  ["dragenter", "dragover"].forEach((evt) =>
+    dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add("dragover"); })
+  );
+  ["dragleave", "drop"].forEach((evt) =>
+    dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.remove("dragover"); })
+  );
+  dropzone.addEventListener("drop", (e) => {
+    if (e.dataTransfer.files.length) startUploads(e.dataTransfer.files);
+  });
+  // Si falta el nombre de la obra, no abre el selector: avisa y enfoca el campo
+  dropzone.addEventListener("click", (e) => {
+    if (!slugify(albumInput.value)) {
+      e.preventDefault();
+      flagAlbumField();
+    }
+  });
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files.length) startUploads(fileInput.files);
+    fileInput.value = "";
+  });
+  albumInput.addEventListener("input", () => albumInput.classList.remove("invalid"));
+
+  function flagAlbumField() {
+    albumInput.classList.add("invalid");
+    albumInput.focus();
+    albumInput.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+
+  // ---- Subida (con cola y progreso) ------------------------------------
+  const queue = [];
+  let running = 0;
+
+  function startUploads(files) {
+    const slug = slugify(albumInput.value);
+    if (!slug) { flagAlbumField(); return; }
+    Array.from(files).forEach((file) => {
+      const isVideo = file.type.startsWith("video/");
+      if (!isVideo && !file.type.startsWith("image/")) return;
+      queue.push({ file, slug, isVideo, el: makePendingItem(file, isVideo) });
+    });
+    pump();
+  }
+
+  function makePendingItem(file, isVideo) {
+    const item = document.createElement("div");
+    item.className = "upload-item";
+    if (isVideo) {
+      item.innerHTML = `<div class="status">En cola...</div><span class="file-badge">VIDEO</span><span class="pct"></span>`;
+    } else {
+      item.innerHTML = `<img alt=""><div class="status">En cola...</div><span class="pct"></span>`;
+      const reader = new FileReader();
+      reader.onload = (e) => { item.querySelector("img").src = e.target.result; };
+      reader.readAsDataURL(file);
+    }
+    list.prepend(item);
+    return item;
+  }
+
+  function pump() {
+    while (running < MAX_PARALLEL && queue.length) {
+      running++;
+      uploadOne(queue.shift()).finally(() => { running--; pump(); });
+    }
+  }
+
+  function uploadOne({ file, slug, isVideo, el }) {
+    return new Promise((resolve) => {
+      const status = el.querySelector(".status");
+      const bar = el.querySelector(".pct");
+      status.textContent = "Subiendo 0%";
+
+      const fileId = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("upload_preset", UPLOAD_PRESET);
+      fd.append("tags", TAG);
+      fd.append("public_id", `${ALBUM_ROOT}/${slug}/${fileId}`);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`);
+      xhr.upload.onprogress = (e) => {
+        if (!e.lengthComputable) return;
+        const pct = Math.round((e.loaded / e.total) * 100);
+        status.textContent = pct < 100 ? `Subiendo ${pct}%` : "Procesando...";
+        bar.style.width = pct + "%";
+      };
+      const fail = (msg) => {
+        el.classList.add("error");
+        status.textContent = "Error: " + msg;
+        resolve();
+      };
+      xhr.onerror = () => fail("sin conexión");
+      xhr.onload = () => {
+        let data = {};
+        try { data = JSON.parse(xhr.responseText); } catch (_) {}
+        if (xhr.status >= 200 && xhr.status < 300 && data.public_id) {
+          el.classList.add("done");
+          items.push({
+            id: data.public_id,
+            kind: data.resource_type === "video" ? "video" : "image",
+            format: data.format,
+            created: data.created_at || new Date().toISOString(),
+            slug: slugFromId(data.public_id),
+          });
+          render();
+          window.setTimeout(() => el.remove(), 1200);
+          resolve();
+        } else {
+          fail((data.error && data.error.message) || "no se pudo subir");
+        }
+      };
+      xhr.send(fd);
+    });
+  }
+
+  // ---- Lista de obras ya subidas -----------------------------------------
+  async function fetchKind(kind) {
+    try {
+      const res = await fetch(`${CLD}/${kind}/list/${TAG}.json?_=${Date.now()}`);
+      if (!res.ok) return { ok: false, list: [] };
+      const data = await res.json();
+      return {
+        ok: true,
+        list: (data.resources || []).map((r) => ({
+          id: r.public_id, kind, format: r.format, created: r.created_at, slug: slugFromId(r.public_id),
+        })),
+      };
+    } catch (_) {
+      return { ok: false, list: [] };
+    }
+  }
+
+  async function loadGallery() {
+    const [imgs, vids] = await Promise.all([fetchKind("image"), fetchKind("video")]);
+    if (!imgs.ok && !vids.ok) {
+      galleryStatus.textContent =
+        "No se pudieron cargar las obras (revisá Settings → Security → Resource list en Cloudinary).";
+      return;
+    }
+    items = imgs.list.concat(vids.list);
+    render();
+  }
+
+  function render() {
+    const groups = new Map();
+    items.forEach((it) => {
+      if (!groups.has(it.slug)) groups.set(it.slug, []);
+      groups.get(it.slug).push(it);
+    });
+    const albums = [...groups.entries()].map(([slug, arr]) => {
+      arr.sort((a, b) => new Date(a.created) - new Date(b.created));
+      return { slug, arr, latest: Math.max(...arr.map((i) => new Date(i.created).getTime() || 0)) };
+    });
+    albums.sort((a, b) => (a.slug === "" ? 1 : b.slug === "" ? -1 : b.latest - a.latest));
+
+    // sugerencias para el campo "Nombre de la obra"
+    $("album-options").innerHTML = albums
+      .filter((a) => a.slug)
+      .map((a) => `<option value="${albumTitle(a.slug).replace(/"/g, "&quot;")}"></option>`)
+      .join("");
+
+    if (!items.length) {
+      galleryStatus.textContent = "Todavía no hay obras subidas.";
+      albumsWrap.innerHTML = "";
+      return;
+    }
+    galleryStatus.textContent = `${albums.length} obra(s), ${items.length} archivo(s) en total`;
+    albumsWrap.innerHTML = "";
+
+    albums.forEach(({ slug, arr }) => {
+      const group = document.createElement("div");
+      group.className = "album-group";
+
+      const head = document.createElement("div");
+      head.className = "album-group-head";
+      const h = document.createElement("h3");
+      h.textContent = albumTitle(slug);
+      const small = document.createElement("small");
+      small.textContent = `${arr.length} archivo(s)`;
+      h.appendChild(small);
+      head.appendChild(h);
+      if (slug) {
+        const add = document.createElement("button");
+        add.type = "button";
+        add.className = "add-to-album";
+        add.textContent = "+ AGREGAR A ESTA OBRA";
+        add.addEventListener("click", () => {
+          albumInput.value = albumTitle(slug);
+          albumInput.classList.remove("invalid");
+          albumInput.scrollIntoView({ block: "center", behavior: "smooth" });
+        });
+        head.appendChild(add);
+      }
+      group.appendChild(head);
+
+      const grid = document.createElement("div");
+      grid.className = "upload-list";
+      arr.forEach((it, i) => {
+        const el = document.createElement("div");
+        el.className = "upload-item done";
+        const img = document.createElement("img");
+        img.src = thumbUrl(it);
+        img.alt = "Archivo de la obra";
+        img.loading = "lazy";
+        el.appendChild(img);
+        if (it.kind === "video") {
+          const m = document.createElement("span");
+          m.className = "video-mark";
+          m.textContent = "▶";
+          el.appendChild(m);
+        }
+        if (i === 0 && slug) {
+          const b = document.createElement("span");
+          b.className = "file-badge";
+          b.textContent = "PORTADA";
+          el.appendChild(b);
+        }
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "delete-btn";
+        del.title = "Borrar";
+        del.setAttribute("aria-label", "Borrar");
+        del.textContent = "✕";
+        del.addEventListener("click", () => deleteItem(it, el));
+        el.appendChild(del);
+        grid.appendChild(el);
+      });
+      group.appendChild(grid);
+      albumsWrap.appendChild(group);
+    });
+  }
+
+  // ---- SHA-1 (para firmar el pedido de borrado) ---------------------------
+  async function sha1Hex(text) {
+    const buf = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  async function deleteItem(it, el) {
+    if (!confirm("¿Borrar este archivo? No se puede deshacer.")) return;
+    el.style.opacity = "0.4";
+
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = await sha1Hex(`public_id=${it.id}&timestamp=${timestamp}${API_SECRET}`);
+    const fd = new FormData();
+    fd.append("public_id", it.id);
+    fd.append("timestamp", timestamp);
+    fd.append("api_key", API_KEY);
+    fd.append("signature", signature);
+
+    try {
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${it.kind}/destroy`, {
+        method: "POST",
+        body: fd,
+      });
+      const data = await res.json();
+      if (data.result === "ok") {
+        items = items.filter((x) => x.id !== it.id);
+        render();
+      } else {
+        el.style.opacity = "1";
+        alert("No se pudo borrar: " + (data.result || (data.error && data.error.message) || "error desconocido"));
+      }
+    } catch (err) {
+      el.style.opacity = "1";
+      alert("Error al borrar.");
+      console.error(err);
+    }
+  }
+
+  loadGallery();
+</script>
+</body>
+</html>

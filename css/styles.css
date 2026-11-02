@@ -1098,3 +1098,49 @@ h1,h2,h3,p{ margin:0; }
   .instagram-banner-inner{ flex-direction:column; text-align:center; }
   .instagram-left{ flex-direction:column; text-align:center; }
 }
+
+/* ==========================================================================
+   PÁGINA PRIVADA — obras (álbumes)
+   ========================================================================== */
+.uploader-page{ max-width:760px; }
+.album-field{ text-align:left; margin-bottom:18px; }
+.album-field label{
+  display:block; font-size:12px; font-weight:700; letter-spacing:1px;
+  color:var(--gray); margin-bottom:8px; text-transform:uppercase;
+}
+.album-field input{
+  width:100%; padding:13px 14px; font-size:16px; font-family:inherit;
+  border:1px solid var(--gray-light); border-radius:var(--radius);
+}
+.album-field input:focus{ outline:none; border-color:var(--blue); box-shadow:0 0 0 3px rgba(0,87,184,0.12); }
+.album-field input.invalid{ border-color:#c81e1e; box-shadow:0 0 0 3px rgba(200,30,30,0.12); }
+.album-hint{ font-size:12px; color:var(--gray); margin-top:6px; }
+.upload-item .pct{
+  position:absolute; left:0; bottom:0; height:4px; width:0;
+  background:var(--blue); transition:width 0.15s linear;
+}
+.upload-item .file-badge{
+  position:absolute; left:6px; bottom:8px;
+  background:rgba(0,0,0,0.6); color:#fff; font-size:10px; font-weight:700;
+  padding:2px 6px; border-radius:3px;
+}
+.upload-item.done .pct{ display:none; }
+.album-group{ margin-top:34px; text-align:left; }
+.album-group-head{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  border-bottom:1px solid var(--gray-light); padding-bottom:8px;
+}
+.album-group-head h3{ font-size:17px; margin:0; }
+.album-group-head small{ color:var(--gray); font-weight:400; font-size:13px; margin-left:6px; }
+.add-to-album{
+  border:1px solid var(--blue); background:transparent; color:var(--blue);
+  font-family:inherit; font-size:12px; font-weight:700; letter-spacing:0.5px;
+  padding:7px 12px; border-radius:var(--radius); cursor:pointer; white-space:nowrap;
+  transition:background 0.2s ease, color 0.2s ease;
+}
+.add-to-album:hover{ background:var(--blue); color:#fff; }
+.album-group .upload-list{ margin-top:14px; }
+.upload-item .video-mark{
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  color:#fff; font-size:22px; background:rgba(0,0,0,0.25); pointer-events:none;
+}
