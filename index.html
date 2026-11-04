@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Subir fotos de trabajos | JAMAR</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="stylesheet" href="css/styles.css">
+<link rel="stylesheet" href="css/styles.css?v=1793760871">
 </head>
 <body>
 
@@ -25,9 +25,9 @@
 
     <div class="album-field">
       <label for="album-name">Nombre de la obra (opcional)</label>
-      <input type="text" id="album-name" list="album-options" placeholder="Opcional. Ej: Local Palermo, Casa Quilmes" autocomplete="off" maxlength="60">
+      <input type="text" id="album-name" list="album-options" placeholder="Vacío = Otros Trabajos. Ej: Local Palermo" autocomplete="off" maxlength="60">
       <datalist id="album-options"></datalist>
-      <p class="album-hint">Para agregar a una obra que ya existe, elegila de la lista. Si lo dejás vacío, se sube a "Otros trabajos".</p>
+      <p class="album-hint">Para agregar a una obra que ya existe, elegila de la lista. Si lo dejás vacío, se sube a "Otros Trabajos".</p>
     </div>
 
     <form id="upload-form">
@@ -90,7 +90,7 @@
   const albumKey = (s) => s.toLowerCase().replace(/[-_\s]+/g, "-");
 
   function albumTitle(slug) {
-    if (!slug) return "Otros trabajos";
+    if (!slug) return "Otros Trabajos";
     const t = slug.replace(/[-_]+/g, " ").trim();
     if (/[A-Z_]/.test(slug)) return t; // nombre puesto desde el panel: tal cual
     return t.replace(/\S+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1)); // nombres viejos
@@ -141,7 +141,7 @@
   let running = 0;
 
   function startUploads(files) {
-    const seg = resolveSeg(albumInput.value); // "" = Otros trabajos
+    const seg = resolveSeg(albumInput.value); // "" = Otros Trabajos
     Array.from(files).forEach((file) => {
       const isVideo = file.type.startsWith("video/");
       if (!isVideo && !file.type.startsWith("image/")) return;
@@ -319,7 +319,7 @@
         albumInput.scrollIntoView({ block: "center", behavior: "smooth" });
         galleryStatus.textContent = slug
           ? `Las próximas fotos van a "${albumTitle(slug)}".`
-          : 'Las próximas fotos van a "Otros trabajos" (campo vacío).';
+          : 'Las próximas fotos van a "Otros Trabajos" (campo vacío).';
       });
       mkBtn("RENOMBRAR", () => renameAlbum(slug));
       head.appendChild(actions);
@@ -399,13 +399,13 @@
     it.slug = slugFromId(it.id);
   }
 
-  // ---- Renombrar una obra completa (cualquiera, incluida "Otros trabajos") ---
+  // ---- Renombrar una obra completa (cualquiera, incluida "Otros Trabajos") ---
   async function renameAlbum(slug) {
     if (busy) return;
     const typed = prompt(
       slug
         ? `Nuevo nombre para "${albumTitle(slug)}":`
-        : 'Nombre para las fotos de "Otros trabajos" (pasan a ser una obra con ese nombre):',
+        : 'Nombre para las fotos de "Otros Trabajos" (pasan a ser una obra con ese nombre):',
       slug ? albumTitle(slug) : ""
     );
     if (typed === null) return;
